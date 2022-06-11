@@ -1,7 +1,10 @@
 import React, { Component } from "react";
 import getWeb3 from "./getWeb3";
-import Token from "./contracts/Token.json";
+import Token from "../src/contracts/Token.json";
+import Contracts from "../src/contracts/contract-address.json";
 import "./App.css";
+import { BigNumber, parseEther } from "ethers";
+import { connectWallet, getCurrentWalletConnected } from "../src/utils/interact.js";
 
 class App extends Component {
   state = {
@@ -26,11 +29,18 @@ class App extends Component {
 
       // Get the contract instance.
       const networkId = await web3.eth.net.getId();
-      const deployedNetwork = Token.networks[networkId];
+      
+      // ############ truffle ###############
+      //const deployedNetwork = Token.networks[networkId];
+      //const deployedAddress = deployedNetwork.address;
+
+      // ############ hardhat ###############
+      const deployedAddress = Contracts.Token;
       const instance = new web3.eth.Contract(
         Token.abi,
-        deployedNetwork && deployedNetwork.address,
+        Contracts && deployedAddress,
       );
+        console.log("contract", instance);
 
       // Set web3, accounts, and contract to the state, and then proceed with an
       // example of interacting with the contract's methods.
@@ -47,33 +57,87 @@ class App extends Component {
 
 
   sendCoin = async (event) => {
+
     event.preventDefault();
+    const web3 = this.state.web3;
+    console.log("sendCoin.web3", web3);
     console.log(this.state.reciverAddress);
     console.log(this.state.sendingTokens);
+    console.log( this.state.reciverAddress + ": isAddress - "+ web3.utils.isAddress(this.state.reciverAddress) );
+
     if (this.state.reciverAddress === '' || this.state.sendingTokens === 0) { } else {
-      const { accounts, contract } = this.state;
-      let respons = await contract.methods.transfer(this.state.reciverAddress, this.state.sendingTokens).send({ from: accounts[0] })
-      console.log(respons);
+      try{
+        const sAmount = web3.utils.toWei(this.state.sendingTokens, 'ether');
+        const bigAmount = BigNumber.from(sAmount);
+        console.log("sAmount", sAmount);
+        console.log("bigAmount", bigAmount);
+        const { accounts, contract } = this.state;
+        
+        
+        // let respons = await contract.methods.transfer(
+        //     this.state.reciverAddress, 
+        //     bigAmount
+        //     ).send({ from: accounts[0]
+        //              // ,value: 9999 
+        //        })
+        // console.log(respons);
+
+
+        // ############ update start
+        const wallResult = await getCurrentWalletConnected();
+        console.log("wallResult", wallResult);
+        const walletAddress = wallResult.address;
+        
+        let transactionParameters = {
+          to: Contracts.Token,
+          from: walletAddress,
+          data: contract.methods.transfer(
+              this.state.reciverAddress, 
+              bigAmount).encodeABI(),
+        };
+        await window.ethereum.request({
+          method: "eth_sendTransaction",
+          params: [transactionParameters],
+        }).then (function(res, err) {
+          if (res) {
+            alert("Token Transfer was Successfully Performed.");
+          }
+          console.log("Token Transfer was Successfully Performed.");
+        })
+        // ############ update end
+
+      }
+      catch(error)
+      {
+        alert("token sending error");
+        console.error(error);
+      }
       this.getInfo()
     }
   }
 
   getInfo = async () => {
     const { accounts, contract } = this.state;
+
+    console.log("getInfo.contract", contract);
     const response = await contract.methods.name.call();
     this.setState({ myAddress: accounts[0] });
+    console.log("name.call()",response);
 
     contract.methods.balanceOf(accounts[0]).call().then((balance) => {
       let bal = parseInt((balance / 1000000000000000000)).toFixed(18)
       this.setState({ myBalance: bal });
     })
-    let result = contract.methods.name.call().call((error, result) => {
-      console.log(result);
-      this.setState({ tokenName: result });
-    });
-    console.log(response);
-
+    // let result1 = contract.methods.name.call().call((error, result) => {
+    //   console.log("call().call", result);
+    //   this.setState({ tokenName: result });
+    // });
+    let result = await contract.methods.name.call();
+    this.setState({ tokenName: result.name });
+    console.log("name.call2()", result);
   }
+
+
   render() {
     if (!this.state.web3) {
       return (
